@@ -175,7 +175,11 @@ private fun SwipeableDownloadRow(
                 }
             }
             
-            if (item.status == DownloadStatus.DOWNLOADING || item.status == DownloadStatus.PROCESSING) {
+            if (item.status == DownloadStatus.DOWNLOADING ||
+                item.status == DownloadStatus.PROCESSING ||
+                item.status == DownloadStatus.QUEUED
+            ) {
+
                 IconButton(onClick = { onCancel(item.id) }) {
                     Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = AnydownColors.coral)
                 }
