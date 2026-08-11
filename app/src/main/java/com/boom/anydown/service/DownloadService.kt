@@ -13,7 +13,6 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.boom.anydown.MainActivity
-import com.boom.anydown.R
 import com.boom.anydown.model.DownloadRequest
 import com.boom.anydown.model.DownloadStatus
 import com.boom.anydown.util.CrashLogger
