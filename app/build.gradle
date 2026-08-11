@@ -1,7 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.chaquo.python")
+}
+
+// Release signing credentials are read from keystore.properties (git-ignored),
+// never hardcoded here. See keystore.properties.example.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasKeystore = keystorePropertiesFile.exists()
+if (hasKeystore) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
 
 android {
@@ -33,11 +44,13 @@ android {
     }
 
     signingConfigs {
-        release {
-            storeFile file("anydown-release.jks")
-            storePassword "anydown2026"
-            keyAlias "anydown"
-            keyPassword "anydown2026"
+        if (hasKeystore) {
+            release {
+                storeFile file(keystoreProperties.getProperty("storeFile"))
+                storePassword keystoreProperties.getProperty("storePassword")
+                keyAlias keystoreProperties.getProperty("keyAlias")
+                keyPassword keystoreProperties.getProperty("keyPassword")
+            }
         }
     }
 
@@ -45,7 +58,11 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
-            signingConfig signingConfigs.release
+            // Falls back to an unsigned release build when keystore.properties
+            // is absent (e.g. CI), so the debug workflow keeps working.
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
@@ -87,4 +104,6 @@ dependencies {
 
 dependencies {
     implementation 'com.google.code.gson:gson:2.10.1'
+    // Foreground service notifications (NotificationCompat / ServiceCompat)
+    implementation 'androidx.core:core-ktx:1.13.1'
 }
