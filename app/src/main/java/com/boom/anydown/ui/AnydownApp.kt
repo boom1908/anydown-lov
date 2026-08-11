@@ -2,7 +2,6 @@ package com.boom.anydown.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
@@ -11,6 +10,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,28 +20,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.boom.anydown.model.HomeUiState
 import com.boom.anydown.ui.aura.AuraOverlay
 import com.boom.anydown.ui.aura.AuraOverlayController
 import com.boom.anydown.ui.brutalist.brutalistBox
 import com.boom.anydown.ui.downloads.DownloadsScreen
 import com.boom.anydown.ui.home.HomeIdleContent
+import com.boom.anydown.ui.home.HomePlaylistContent
 import com.boom.anydown.ui.home.HomeResultContent
+import com.boom.anydown.ui.home.accentForFormat
+import com.boom.anydown.ui.playlist.PlaylistSelectionScreen
 import com.boom.anydown.ui.theme.AnydownColors
 import com.boom.anydown.viewmodel.AnydownViewModel
 
 private const val ROUTE_HOME = "home"
 private const val ROUTE_DOWNLOADS = "downloads"
+private const val ROUTE_PLAYLIST_SECTION = "playlist/{formatId}"
 
 @Composable
 fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
@@ -54,6 +60,7 @@ fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
     val auraController = remember { AuraOverlayController() }
 
     var downloadsTabPosition by remember { mutableStateOf(Offset.Zero) }
+    val downloads by viewModel.downloads.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -129,15 +136,56 @@ fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
                             },
                             onGrabAnother = viewModel::grabAnother
                         )
+                        is HomeUiState.Playlist -> HomePlaylistContent(
+                            playlist = state.playlist,
+                            selectedCounts = state.playlist.formats.associate {
+                                it.id to viewModel.selectedCount(it.id)
+                            },
+                            onOpenSection = { format ->
+                                navController.navigate("playlist/${format.id}")
+                            },
+                            onDownloadSelected = { startOffset ->
+                                auraController.fire(
+                                    start = startOffset,
+                                    end = downloadsTabPosition,
+                                    color = AnydownColors.green,
+                                    scope = scope
+                                )
+                                viewModel.downloadSelectedPlaylistItems(context)
+                            },
+                            onGrabAnother = viewModel::grabAnother
+                        )
+                    }
+                }
+                composable(
+                    route = ROUTE_PLAYLIST_SECTION,
+                    arguments = listOf(navArgument("formatId") { type = NavType.StringType })
+                ) { backStackEntry ->
+                    val formatId = backStackEntry.arguments?.getString("formatId").orEmpty()
+                    val state = viewModel.homeState as? HomeUiState.Playlist
+                    if (state == null) {
+                        navController.popBackStack()
+                    } else {
+                        val format = state.playlist.formats.find { it.id == formatId }
+                        PlaylistSelectionScreen(
+                            sectionLabel = format?.label ?: "Select videos",
+                            accent = accentForFormat(formatId),
+                            entries = state.playlist.entries,
+                            selectedIds = viewModel.selectedIds(formatId),
+                            onToggle = { entryId -> viewModel.toggleSelection(formatId, entryId) },
+                            onSelectAll = {
+                                viewModel.setSelection(formatId, state.playlist.entries.map { it.id }.toSet())
+                            },
+                            onDeselectAll = { viewModel.setSelection(formatId, emptySet()) },
+                            onConfirm = { navController.popBackStack() }
+                        )
                     }
                 }
                 composable(ROUTE_DOWNLOADS) {
                     DownloadsScreen(
-                        downloads = viewModel.downloads,
+                        downloads = downloads,
                         onDelete = { id -> viewModel.deleteDownload(id, context) },
                         onOpen = { item ->
-                            // TODO: item.filePath is empty until the real backend
-                            // writes an actual file — wire this to the real path.
                             val uri = Uri.parse(item.filePath)
                             val intent = Intent(Intent.ACTION_VIEW).apply {
                                 setDataAndType(uri, "video/*")
