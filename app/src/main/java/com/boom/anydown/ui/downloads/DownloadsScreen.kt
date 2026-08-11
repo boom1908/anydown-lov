@@ -140,7 +140,12 @@ private fun SwipeableDownloadRow(
                 Text(item.title, color = AnydownColors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
                 
                 when (item.status) {
+                    DownloadStatus.QUEUED -> {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Queued", color = AnydownColors.textMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                     DownloadStatus.DOWNLOADING -> {
+
                         Spacer(Modifier.height(4.dp))
                         Text("Downloading... ${item.progress}%", color = AnydownColors.yellow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
