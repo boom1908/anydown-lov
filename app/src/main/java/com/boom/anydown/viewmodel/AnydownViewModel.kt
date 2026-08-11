@@ -2,45 +2,46 @@ package com.boom.anydown.viewmodel
 
 import android.app.Application
 import android.content.Context
-import android.net.Uri
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.boom.anydown.model.*
+import com.boom.anydown.service.DownloadQueue
 import com.boom.anydown.util.*
 import com.chaquo.python.PyException
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.UUID
 
 class AnydownViewModel(application: Application) : AndroidViewModel(application) {
     var homeState by mutableStateOf<HomeUiState>(HomeUiState.Idle())
         private set
-    val downloads = mutableStateListOf<DownloadedItem>()
-    
+
+    /**
+     * The download list now lives in the background service's queue, not in the
+     * ViewModel — the UI just observes it, so downloads keep running when this
+     * screen (or the whole app) goes away.
+     */
+    val downloads: StateFlow<List<DownloadedItem>> = DownloadQueue.items
+
+    /**
+     * Playlist selections, keyed by format id ("full" | "audio" | "fast").
+     * Each section keeps its own independent set of chosen video ids.
+     */
+    var playlistSelections by mutableStateOf<Map<String, Set<String>>>(emptyMap())
+        private set
+
     private var loadingJob: Job? = null
-    private val downloadJobs = mutableMapOf<String, Job>()
-    private val cancelledIds = mutableSetOf<String>()
 
     init {
-        // Load history on startup. If any downloads were interrupted by killing the app, mark them FAILED.
-        val savedHistory = HistoryManager.load(application).map { item ->
-            if (item.status == DownloadStatus.DOWNLOADING || item.status == DownloadStatus.PROCESSING) {
-                item.copy(status = DownloadStatus.FAILED, progress = 0)
-            } else item
-        }
-        downloads.addAll(savedHistory)
-        if (savedHistory.any { it.status == DownloadStatus.FAILED }) {
-            HistoryManager.save(application, downloads.toList())
-        }
+        DownloadQueue.ensureLoaded(application)
     }
 
     fun onLinkChanged(text: String) {
@@ -70,7 +71,36 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
         loadingJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val py = Python.getInstance()
-                val res = py.getModule("downloader").callAttr("fetch_video_info", idle.linkInput).asMap()
+                val downloader = py.getModule("downloader")
+                val isPlaylist = downloader.callAttr("is_playlist", idle.linkInput).toBoolean()
+
+                if (isPlaylist) {
+                    val res = downloader.callAttr("fetch_playlist_info", idle.linkInput).asMap()
+                    val entries = res[PyObject.fromJava("entries")]!!.asList().map { e ->
+                        val m = e.asMap()
+                        PlaylistEntry(
+                            id = m[PyObject.fromJava("id")].toString(),
+                            url = m[PyObject.fromJava("url")].toString(),
+                            title = m[PyObject.fromJava("title")].toString(),
+                            thumbnailUrl = m[PyObject.fromJava("thumbnailUrl")].toString(),
+                            durationText = m[PyObject.fromJava("durationText")].toString()
+                        )
+                    }
+                    val playlist = PlaylistResult(
+                        sourceUrl = idle.linkInput,
+                        title = res[PyObject.fromJava("title")].toString(),
+                        entries = entries,
+                        formats = defaultFormats()
+                    )
+                    withContext(Dispatchers.Main) {
+                        playlistSelections = emptyMap()
+                        homeState = HomeUiState.Playlist(playlist)
+                    }
+                    return@launch
+                }
+
+                // Single video — unchanged from before.
+                val res = downloader.callAttr("fetch_video_info", idle.linkInput).asMap()
                 val formatsRaw = res[PyObject.fromJava("formats")]!!.asList()
                 val formats = formatsRaw.map { f ->
                     val m = f.asMap()
@@ -96,87 +126,87 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** Single-video download — now just a batch of one on the background queue. */
     fun onFormatSelected(format: DownloadFormat, video: VideoResult, context: Context) {
-        val itemId = UUID.randomUUID().toString()
-        downloads.add(0, DownloadedItem(itemId, video.title, video.thumbnailUrl, 0, "", DownloadStatus.DOWNLOADING, 0))
-        HistoryManager.save(getApplication(), downloads.toList())
-
-        val job = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val py = Python.getInstance()
-                val ffmpegDir = getFfmpegBinDir(context)
-                val outputDir = context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
-
-                val callback = object : ProgressCallback {
-                    override fun onProgress(percent: Int, status: String) {
-                        viewModelScope.launch(Dispatchers.Main) {
-                            val idx = downloads.indexOfFirst { it.id == itemId }
-                            if (idx != -1) {
-                                val currentStatus = if (status == "processing") DownloadStatus.PROCESSING else DownloadStatus.DOWNLOADING
-                                downloads[idx] = downloads[idx].copy(progress = percent, status = currentStatus)
-                            }
-                        }
-                    }
-                    override fun isCancelled(): Boolean = cancelledIds.contains(itemId)
-                }
-                
-                val resultPath = py.getModule("downloader")
-                    .callAttr("fetch_video", video.sourceUrl, ffmpegDir, outputDir, format.id, callback)
-                    .toString()
-
-                val file = File(resultPath)
-                val mime = if (format.id == "audio") "audio/m4a" else "video/mp4"
-                val uri = saveToDownloads(context, file, mime)
-                
-                if (file.exists()) file.delete()
-
-                withContext(Dispatchers.Main) {
-                    val idx = downloads.indexOfFirst { it.id == itemId }
-                    if (idx != -1) {
-                        downloads[idx] = downloads[idx].copy(filePath = uri, status = DownloadStatus.COMPLETED, progress = 100)
-                        HistoryManager.save(getApplication(), downloads.toList())
-                    }
-                }
-            } catch (e: PyException) {
-                CrashLogger.log("PYTHON ERROR (download): ${e.message}")
-                withContext(Dispatchers.Main) {
-                    val idx = downloads.indexOfFirst { it.id == itemId }
-                    if (idx != -1) {
-                        val finalStatus = if (cancelledIds.contains(itemId)) DownloadStatus.CANCELLED else DownloadStatus.FAILED
-                        downloads[idx] = downloads[idx].copy(status = finalStatus)
-                        HistoryManager.save(getApplication(), downloads.toList())
-                    }
-                }
-            } finally {
-                downloadJobs.remove(itemId)
-                cancelledIds.remove(itemId)
-            }
-        }
-        downloadJobs[itemId] = job
+        DownloadQueue.enqueue(
+            context,
+            listOf(
+                DownloadRequest(
+                    id = UUID.randomUUID().toString(),
+                    url = video.sourceUrl,
+                    title = video.title,
+                    thumbnailUrl = video.thumbnailUrl,
+                    formatId = format.id
+                )
+            )
+        )
     }
 
+    // --- playlist selection ------------------------------------------------
+
+    fun selectedIds(formatId: String): Set<String> = playlistSelections[formatId].orEmpty()
+
+    fun selectedCount(formatId: String): Int = selectedIds(formatId).size
+
+    fun toggleSelection(formatId: String, entryId: String) {
+        val current = selectedIds(formatId)
+        val next = if (current.contains(entryId)) current - entryId else current + entryId
+        playlistSelections = playlistSelections + (formatId to next)
+    }
+
+    fun setSelection(formatId: String, ids: Set<String>) {
+        playlistSelections = playlistSelections + (formatId to ids)
+    }
+
+    fun totalSelected(): Int = playlistSelections.values.sumOf { it.size }
+
+    /**
+     * Gathers every selection across all three sections — each in its own
+     * quality — and hands the whole batch to the background queue.
+     */
+    fun downloadSelectedPlaylistItems(context: Context) {
+        val state = homeState as? HomeUiState.Playlist ?: return
+        val byId = state.playlist.entries.associateBy { it.id }
+
+        val requests = mutableListOf<DownloadRequest>()
+        state.playlist.formats.forEach { format ->
+            selectedIds(format.id).forEach { entryId ->
+                val entry = byId[entryId] ?: return@forEach
+                requests.add(
+                    DownloadRequest(
+                        id = UUID.randomUUID().toString(),
+                        url = entry.url,
+                        title = entry.title,
+                        thumbnailUrl = entry.thumbnailUrl,
+                        formatId = format.id
+                    )
+                )
+            }
+        }
+        if (requests.isEmpty()) return
+        DownloadQueue.enqueue(context, requests)
+        playlistSelections = emptyMap()
+    }
+
+    // --- downloads list actions -------------------------------------------
+
     fun cancelDownload(id: String) {
-        cancelledIds.add(id)
+        DownloadQueue.cancel(getApplication(), id)
     }
 
     fun deleteDownload(id: String, context: Context) {
-        cancelDownload(id)
-        downloadJobs[id]?.cancel() 
-
-        val item = downloads.find { it.id == id }
-        if (item != null && item.filePath.isNotEmpty()) {
-            try {
-                context.contentResolver.delete(Uri.parse(item.filePath), null, null)
-            } catch (e: Exception) {
-                CrashLogger.log("Failed to delete file from disk: ${e.message}")
-            }
-        }
-        downloads.removeAll { it.id == id }
-        HistoryManager.save(getApplication(), downloads.toList())
+        DownloadQueue.remove(context, id)
     }
 
     fun grabAnother() {
         loadingJob?.cancel()
+        playlistSelections = emptyMap()
         homeState = HomeUiState.Idle()
     }
+
+    private fun defaultFormats() = listOf(
+        DownloadFormat("full", "Video + Audio (Best Quality)", "Best available · MP4", "Size depends on quality"),
+        DownloadFormat("audio", "Audio Only", "M4A", "5-10 MB each"),
+        DownloadFormat("fast", "Fast Download", "720p · MP4", "<50 MB each")
+    )
 }
