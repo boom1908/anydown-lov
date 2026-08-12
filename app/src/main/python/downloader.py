@@ -124,3 +124,159 @@ def fetch_playlist_info(url):
         "title": info.get("title", "Playlist"),
         "entries": entries,
     }
+
+
+# ---------------------------------------------------------------------------
+# Spotify support (Features 3 & 4)
+#
+# Deliberately credential-free: we only touch Spotify's *public* oEmbed
+# endpoint and the public track page HTML. No Web API, no client id/secret,
+# no login. Playlists/albums are never enumerated — that would require the
+# official API — so the app only shows an explanatory popup for those.
+# ---------------------------------------------------------------------------
+
+import json as _json
+import re as _re
+from urllib.parse import urlparse as _urlparse, quote as _quote
+from urllib.request import Request as _Request, urlopen as _urlopen
+
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/122.0 Safari/537.36")
+
+
+def spotify_link_type(url):
+    """Returns 'track' | 'playlist' | 'album' | '' for a given URL."""
+    try:
+        parsed = _urlparse(url.strip())
+        if "spotify.com" not in (parsed.netloc or ""):
+            return ""
+        path = parsed.path or ""
+        for kind in ("track", "playlist", "album"):
+            if _re.search(r"/%s/[A-Za-z0-9]+" % kind, path):
+                return kind
+        return ""
+    except Exception:
+        return ""
+
+
+def _http_get(url, timeout=15):
+    req = _Request(url, headers={"User-Agent": _UA, "Accept-Language": "en-US,en;q=0.9"})
+    with _urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", errors="ignore")
+
+
+def _spotify_oembed_title(track_url):
+    raw = _http_get("https://open.spotify.com/oembed?url=" + _quote(track_url, safe=""))
+    data = _json.loads(raw)
+    return data.get("title") or "", data.get("thumbnail_url") or ""
+
+
+def _spotify_artist_from_page(track_url):
+    """Best-effort artist extraction from the public track page's meta tags."""
+    try:
+        html = _http_get(track_url)
+    except Exception:
+        return ""
+    patterns = [
+        r'<meta\s+property="og:description"\s+content="([^"]+)"',
+        r'<meta\s+name="description"\s+content="([^"]+)"',
+        r'<meta\s+name="music:musician_description"\s+content="([^"]+)"',
+    ]
+    for pattern in patterns:
+        m = _re.search(pattern, html, _re.IGNORECASE)
+        if not m:
+            continue
+        desc = m.group(1)
+        # Typical shapes: "Song · Artist · Song · 2020" or "Artist · Song · 2020"
+        parts = [p.strip() for p in _re.split(r"·|\u00b7", desc) if p.strip()]
+        for part in parts:
+            low = part.lower()
+            if low in ("song", "single", "album", "listen on spotify"):
+                continue
+            if _re.fullmatch(r"\d{4}", part):
+                continue
+            return part
+    return ""
+
+
+def _youtube_best_match(query):
+    opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
+        'extract_flat': 'in_playlist',
+        'default_search': 'ytsearch',
+        'noplaylist': True,
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info("ytsearch5:" + query, download=False)
+    entries = [e for e in (info.get("entries") or []) if e]
+    if not entries:
+        return None
+    # Prefer an official-looking audio result; fall back to the top hit.
+    def score(entry):
+        title = (entry.get("title") or "").lower()
+        channel = (entry.get("channel") or entry.get("uploader") or "").lower()
+        s = 0
+        if "official audio" in title or "audio" in title:
+            s += 3
+        if "topic" in channel:
+            s += 4
+        if "official" in title:
+            s += 1
+        for bad in ("live", "cover", "remix", "reaction", "karaoke", "sped up", "8d"):
+            if bad in title:
+                s -= 3
+        return s
+
+    best = max(entries, key=score)
+    video_id = best.get("id") or ""
+    url = best.get("url") or best.get("webpage_url") or ""
+    if url and not url.startswith("http"):
+        url = "https://www.youtube.com/watch?v=" + url
+    if not url and video_id:
+        url = "https://www.youtube.com/watch?v=" + video_id
+
+    thumb = ""
+    thumbs = best.get("thumbnails") or []
+    if thumbs:
+        thumb = thumbs[-1].get("url", "")
+    if not thumb and video_id:
+        thumb = "https://i.ytimg.com/vi/%s/hqdefault.jpg" % video_id
+
+    return {
+        "url": url,
+        "title": best.get("title") or "Unknown",
+        "channel": best.get("channel") or best.get("uploader") or "YouTube",
+        "thumbnailUrl": thumb,
+        "durationText": _format_duration(best.get("duration", 0)),
+    }
+
+
+def resolve_spotify_track(url):
+    """
+    Public-data-only Spotify track resolution:
+      title (oEmbed) [+ artist (page meta)] -> YouTube search -> best match.
+    Returns a dict the UI shows as a confirmation card before downloading.
+    """
+    title, thumb = _spotify_oembed_title(url)
+    if not title:
+        raise ValueError("Could not read this Spotify track")
+
+    artist = _spotify_artist_from_page(url)
+    # The oEmbed title sometimes already contains the artist; don't duplicate it.
+    if artist and artist.lower() in title.lower():
+        query = title
+    elif artist:
+        query = "%s %s" % (title, artist)
+    else:
+        query = title
+
+    match = _youtube_best_match(query)
+    if not match:
+        raise ValueError("No YouTube match found for this track")
+
+    match["spotifyTitle"] = title
+    match["spotifyArtist"] = artist
+    match["spotifyThumbnailUrl"] = thumb
+    return match

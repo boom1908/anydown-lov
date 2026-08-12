@@ -72,6 +72,40 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val py = Python.getInstance()
                 val downloader = py.getModule("downloader")
+
+                // --- Spotify links (public data only, no API credentials) ---
+                val spotifyKind = downloader.callAttr("spotify_link_type", idle.linkInput).toString()
+                if (spotifyKind == "playlist" || spotifyKind == "album") {
+                    // Deliberately no fetching here: enumerating a Spotify
+                    // playlist needs the official Web API, which we don't use.
+                    withContext(Dispatchers.Main) {
+                        homeState = HomeUiState.Idle(
+                            linkInput = idle.linkInput,
+                            spotifyCollectionKind = spotifyKind
+                        )
+                    }
+                    return@launch
+                }
+                if (spotifyKind == "track") {
+                    withContext(Dispatchers.Main) {
+                        homeState = idle.copy(isLoading = true, loadingStatusText = "Matching this track on YouTube…")
+                    }
+                    val m = downloader.callAttr("resolve_spotify_track", idle.linkInput).asMap()
+                    fun str(key: String) = m[PyObject.fromJava(key)]?.toString().orEmpty()
+                    val match = SpotifyMatch(
+                        spotifyUrl = idle.linkInput,
+                        spotifyTitle = str("spotifyTitle"),
+                        spotifyArtist = str("spotifyArtist"),
+                        videoUrl = str("url"),
+                        videoTitle = str("title"),
+                        channel = str("channel"),
+                        thumbnailUrl = str("thumbnailUrl"),
+                        durationText = str("durationText")
+                    )
+                    withContext(Dispatchers.Main) { homeState = HomeUiState.SpotifyTrack(match) }
+                    return@launch
+                }
+
                 val isPlaylist = downloader.callAttr("is_playlist", idle.linkInput).toBoolean()
 
                 if (isPlaylist) {
@@ -121,7 +155,12 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                 withContext(Dispatchers.Main) { homeState = HomeUiState.Result(video) }
             } catch (e: PyException) {
                 CrashLogger.log("PYTHON ERROR (fetchVideo): ${e.message}")
-                withContext(Dispatchers.Main) { homeState = HomeUiState.Idle(linkInput = idle.linkInput) }
+                withContext(Dispatchers.Main) {
+                    homeState = HomeUiState.Idle(
+                        linkInput = idle.linkInput,
+                        errorText = "Couldn't read that link. Check it and try again."
+                    )
+                }
             }
         }
     }
@@ -137,6 +176,35 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                     title = video.title,
                     thumbnailUrl = video.thumbnailUrl,
                     formatId = format.id
+                )
+            )
+        )
+    }
+
+    fun dismissSpotifyCollectionDialog() {
+        val idle = homeState as? HomeUiState.Idle ?: return
+        homeState = idle.copy(spotifyCollectionKind = null)
+    }
+
+    fun dismissError() {
+        val idle = homeState as? HomeUiState.Idle ?: return
+        homeState = idle.copy(errorText = null)
+    }
+
+    /**
+     * Confirmed Spotify match — goes straight into the same queue as everything
+     * else, forced to "audio" since a Spotify link means the user wants the song.
+     */
+    fun downloadSpotifyMatch(match: SpotifyMatch, context: Context) {
+        DownloadQueue.enqueue(
+            context,
+            listOf(
+                DownloadRequest(
+                    id = UUID.randomUUID().toString(),
+                    url = match.videoUrl,
+                    title = match.videoTitle,
+                    thumbnailUrl = match.thumbnailUrl,
+                    formatId = "audio"
                 )
             )
         )

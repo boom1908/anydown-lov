@@ -56,13 +56,32 @@ data class DownloadRequest(
     val formatId: String
 )
 
+/**
+ * A Spotify track resolved to its best-matching YouTube video, using only
+ * public data (oEmbed + page meta tags) — no Spotify API credentials involved.
+ */
+data class SpotifyMatch(
+    val spotifyUrl: String,
+    val spotifyTitle: String,
+    val spotifyArtist: String,
+    val videoUrl: String,
+    val videoTitle: String,
+    val channel: String,
+    val thumbnailUrl: String,
+    val durationText: String
+)
+
 sealed class HomeUiState {
     data class Idle(
         val linkInput: String = "",
         val clipboardSuggestion: String? = null,
         val isLoading: Boolean = false,
-        val loadingStatusText: String = ""
+        val loadingStatusText: String = "",
+        /** Set when a Spotify playlist/album link was pasted — shows the explainer dialog. */
+        val spotifyCollectionKind: String? = null,
+        val errorText: String? = null
     ) : HomeUiState()
     data class Result(val video: VideoResult) : HomeUiState()
     data class Playlist(val playlist: PlaylistResult) : HomeUiState()
+    data class SpotifyTrack(val match: SpotifyMatch) : HomeUiState()
 }
