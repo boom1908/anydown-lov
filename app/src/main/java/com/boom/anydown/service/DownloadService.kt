@@ -168,10 +168,17 @@ class DownloadService : Service() {
         lastNotificationUpdate = now
 
         val info = DownloadQueue.queueInfo.value
-        val subtitle = if (info.batchTotal > 1) {
-            "Item ${info.positionInBatch} of ${info.batchTotal} · $percent%"
+        // During the merge step there is no percentage to show, so say what's
+        // happening — an indeterminate bar alone reads as "stuck" to users.
+        val detail = if (status == DownloadStatus.PROCESSING) {
+            "Merging audio & video, this can take a moment"
         } else {
             "$percent%"
+        }
+        val subtitle = if (info.batchTotal > 1) {
+            "Item ${info.positionInBatch} of ${info.batchTotal} · $detail"
+        } else {
+            detail
         }
         val heading = if (status == DownloadStatus.PROCESSING) "Processing: $title" else "Downloading: $title"
         notify(buildNotification(heading, subtitle, percent, indeterminate = status == DownloadStatus.PROCESSING))

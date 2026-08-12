@@ -64,7 +64,7 @@ fun HomeIdleContent(
 
     LaunchedEffect(Unit) {
         val clip = clipboardManager.getText()?.text.orEmpty()
-        if (clip.contains("youtube.com") || clip.contains("youtu.be") || clip.contains("instagram.com") || clip.contains("instagr.am")) {
+        if (clip.contains("youtube.com") || clip.contains("youtu.be") || clip.contains("instagram.com") || clip.contains("instagr.am") || clip.contains("open.spotify.com")) {
             onClipboardDetected(clip)
         }
     }

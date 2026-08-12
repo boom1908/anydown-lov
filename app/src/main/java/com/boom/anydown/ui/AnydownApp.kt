@@ -42,6 +42,8 @@ import com.boom.anydown.ui.home.HomePlaylistContent
 import com.boom.anydown.ui.home.HomeResultContent
 import com.boom.anydown.ui.home.accentForFormat
 import com.boom.anydown.ui.playlist.PlaylistSelectionScreen
+import com.boom.anydown.ui.spotify.SpotifyCollectionDialog
+import com.boom.anydown.ui.spotify.SpotifyMatchContent
 import com.boom.anydown.ui.theme.AnydownColors
 import com.boom.anydown.viewmodel.AnydownViewModel
 
@@ -115,13 +117,44 @@ fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
             ) {
                 composable(ROUTE_HOME) {
                     when (val state = viewModel.homeState) {
-                        is HomeUiState.Idle -> HomeIdleContent(
-                            state = state,
-                            onLinkChanged = viewModel::onLinkChanged,
-                            onFetch = viewModel::fetchVideo,
-                            onClipboardDetected = viewModel::onClipboardLinkDetected,
-                            onAcceptClipboard = viewModel::acceptClipboardSuggestion,
-                            onDismissClipboard = viewModel::dismissClipboardSuggestion
+                        is HomeUiState.Idle -> {
+                            HomeIdleContent(
+                                state = state,
+                                onLinkChanged = viewModel::onLinkChanged,
+                                onFetch = viewModel::fetchVideo,
+                                onClipboardDetected = viewModel::onClipboardLinkDetected,
+                                onAcceptClipboard = viewModel::acceptClipboardSuggestion,
+                                onDismissClipboard = viewModel::dismissClipboardSuggestion
+                            )
+                            state.spotifyCollectionKind?.let { kind ->
+                                SpotifyCollectionDialog(
+                                    kind = kind,
+                                    onConvert = {
+                                        context.startActivity(
+                                            Intent(
+                                                Intent.ACTION_VIEW,
+                                                Uri.parse("https://www.tunemymusic.com/")
+                                            )
+                                        )
+                                        viewModel.dismissSpotifyCollectionDialog()
+                                    },
+                                    onDismiss = viewModel::dismissSpotifyCollectionDialog
+                                )
+                            }
+                        }
+                        is HomeUiState.SpotifyTrack -> SpotifyMatchContent(
+                            match = state.match,
+                            onProceed = { startOffset ->
+                                auraController.fire(
+                                    start = startOffset,
+                                    end = downloadsTabPosition,
+                                    color = AnydownColors.green,
+                                    scope = scope
+                                )
+                                viewModel.downloadSpotifyMatch(state.match, context)
+                                viewModel.grabAnother()
+                            },
+                            onGrabAnother = viewModel::grabAnother
                         )
                         is HomeUiState.Result -> HomeResultContent(
                             video = state.video,
