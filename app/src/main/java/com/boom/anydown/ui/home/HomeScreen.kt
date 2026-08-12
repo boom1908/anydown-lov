@@ -104,7 +104,7 @@ fun HomeIdleContent(
             Text("ANYDOWN", color = AnydownColors.textPrimary, fontWeight = FontWeight.Black, fontSize = 36.sp)
             Spacer(Modifier.height(6.dp))
             Text(
-                "Download YouTube videos, Shorts, and Instagram Reels as full video, audio only, or native audio.",
+                "Download YouTube videos, playlists, Shorts, Instagram Reels, and Spotify tracks as full video or audio only.",
                 color = AnydownColors.textMuted,
                 fontSize = 14.5.sp,
                 lineHeight = 20.sp
