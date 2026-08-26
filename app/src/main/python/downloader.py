@@ -280,3 +280,110 @@ def resolve_spotify_track(url):
     match["spotifyArtist"] = artist
     match["spotifyThumbnailUrl"] = thumb
     return match
+
+
+# ---------------------------------------------------------------------------
+# Single-song albums / playlists
+#
+# Some "albums" are really a single released as an album, and to the user that
+# link looks identical to a real album. A logged-out visitor still gets the
+# full tracklist embedded in the public page HTML (meta music:song tags plus
+# the embedded JSON payload), so we can count tracks without any API.
+#
+# Everything here is deliberately best-effort: any doubt at all returns None,
+# and the caller falls back to the "convert your playlist" popup.
+# ---------------------------------------------------------------------------
+
+def _spotify_collection_track_urls(url):
+    """Best-effort list of unique track URLs embedded in a public album/playlist page."""
+    try:
+        html = _http_get(url, timeout=12)
+    except Exception:
+        return None
+
+    ordered = []
+    seen = set()
+
+    def _add(track_id):
+        if track_id and track_id not in seen:
+            seen.add(track_id)
+            ordered.append("https://open.spotify.com/track/" + track_id)
+
+    # 1) <meta name="music:song" content="https://open.spotify.com/track/ID">
+    for m in _re.finditer(
+        r'<meta[^>]+(?:name|property)="music:song"[^>]+content="[^"]*?/track/([A-Za-z0-9]+)"',
+        html, _re.IGNORECASE
+    ):
+        _add(m.group(1))
+    if ordered:
+        return ordered
+
+    # 2) Embedded JSON payload: spotify:track:ID / "/track/ID"
+    for m in _re.finditer(r'spotify:track:([A-Za-z0-9]{20,})', html):
+        _add(m.group(1))
+    if ordered:
+        return ordered
+    for m in _re.finditer(r'open\.spotify\.com/track/([A-Za-z0-9]{20,})', html):
+        _add(m.group(1))
+    return ordered or None
+
+
+def _spotify_declared_track_count(url):
+    """Reads a declared track count from the page, or None when unavailable."""
+    try:
+        html = _http_get(url, timeout=12)
+    except Exception:
+        return None
+    m = _re.search(r'"totalTracks"\s*:\s*(\d+)', html)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            pass
+    m = _re.search(
+        r'<meta[^>]+(?:name|property)="(?:og:)?description"[^>]+content="([^"]+)"',
+        html, _re.IGNORECASE
+    )
+    if m:
+        c = _re.search(r'(\d+)\s+songs?\b', m.group(1), _re.IGNORECASE)
+        if c:
+            try:
+                return int(c.group(1))
+            except Exception:
+                pass
+    return None
+
+
+def spotify_collection_single_track_url(url):
+    """
+    Returns the single track's URL when an album/playlist reliably contains
+    exactly one song, otherwise "" (caller then shows the popup).
+    """
+    try:
+        tracks = _spotify_collection_track_urls(url)
+        declared = _spotify_declared_track_count(url)
+
+        # Both signals must agree on "1" whenever both are available.
+        if declared is not None and declared != 1:
+            return ""
+        if tracks is None:
+            return ""
+        if len(tracks) != 1:
+            return ""
+        return tracks[0]
+    except Exception:
+        return ""
+
+
+def resolve_spotify_collection_single(url):
+    """
+    If this album/playlist holds exactly one song, resolve it through the same
+    track flow used for /track/ links. Returns None when it doesn't apply.
+    """
+    track_url = spotify_collection_single_track_url(url)
+    if not track_url:
+        return None
+    try:
+        return resolve_spotify_track(track_url)
+    except Exception:
+        return None
