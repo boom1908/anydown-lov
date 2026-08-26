@@ -294,13 +294,8 @@ def resolve_spotify_track(url):
 # and the caller falls back to the "convert your playlist" popup.
 # ---------------------------------------------------------------------------
 
-def _spotify_collection_track_urls(url):
+def _spotify_collection_track_urls(html):
     """Best-effort list of unique track URLs embedded in a public album/playlist page."""
-    try:
-        html = _http_get(url, timeout=12)
-    except Exception:
-        return None
-
     ordered = []
     seen = set()
 
@@ -328,12 +323,8 @@ def _spotify_collection_track_urls(url):
     return ordered or None
 
 
-def _spotify_declared_track_count(url):
+def _spotify_declared_track_count(html):
     """Reads a declared track count from the page, or None when unavailable."""
-    try:
-        html = _http_get(url, timeout=12)
-    except Exception:
-        return None
     m = _re.search(r'"totalTracks"\s*:\s*(\d+)', html)
     if m:
         try:
@@ -360,8 +351,9 @@ def spotify_collection_single_track_url(url):
     exactly one song, otherwise "" (caller then shows the popup).
     """
     try:
-        tracks = _spotify_collection_track_urls(url)
-        declared = _spotify_declared_track_count(url)
+        html = _http_get(url, timeout=12)
+        tracks = _spotify_collection_track_urls(html)
+        declared = _spotify_declared_track_count(html)
 
         # Both signals must agree on "1" whenever both are available.
         if declared is not None and declared != 1:
