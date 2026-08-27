@@ -10,9 +10,9 @@ import androidx.lifecycle.viewModelScope
 import com.boom.anydown.model.*
 import com.boom.anydown.service.DownloadQueue
 import com.boom.anydown.util.*
-import com.chaquo.python.PyException
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
@@ -66,18 +66,41 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
         val idle = homeState as? HomeUiState.Idle ?: return
         if (idle.linkInput.isBlank() || idle.isLoading) return
 
-        homeState = idle.copy(isLoading = true, loadingStatusText = "Waking up Python engine…")
+        homeState = idle.copy(isLoading = true, loadingStatusText = "Waking up the engine…", errorText = null)
         loadingJob?.cancel()
         loadingJob = viewModelScope.launch(Dispatchers.IO) {
+            suspend fun status(text: String) = withContext(Dispatchers.Main) {
+                (homeState as? HomeUiState.Idle)?.let {
+                    homeState = it.copy(isLoading = true, loadingStatusText = text, errorText = null)
+                }
+            }
+
             try {
                 val py = Python.getInstance()
                 val downloader = py.getModule("downloader")
 
                 // --- Spotify links (public data only, no API credentials) ---
                 val spotifyKind = downloader.callAttr("spotify_link_type", idle.linkInput).toString()
+
                 if (spotifyKind == "playlist" || spotifyKind == "album") {
-                    // Deliberately no fetching here: enumerating a Spotify
-                    // playlist needs the official Web API, which we don't use.
+                    status("Peeking inside this album…")
+                    // Some "albums" are a single song released as an album — those
+                    // should behave exactly like a track link. Anything else (or
+                    // any doubt at all) falls back to the explainer popup.
+                    val single = try {
+                        downloader.callAttr("resolve_spotify_collection_single", idle.linkInput)
+                    } catch (e: Throwable) {
+                        CrashLogger.log("Spotify collection probe failed: ${e.message}")
+                        null
+                    }
+                    if (single != null && single.toString() != "None") {
+                        status("Matching it with YouTube…")
+                        val match = single.asMap().toSpotifyMatch(idle.linkInput)
+                        if (match.videoUrl.isNotBlank()) {
+                            withContext(Dispatchers.Main) { homeState = HomeUiState.SpotifyTrack(match) }
+                            return@launch
+                        }
+                    }
                     withContext(Dispatchers.Main) {
                         homeState = HomeUiState.Idle(
                             linkInput = idle.linkInput,
@@ -86,22 +109,12 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                     }
                     return@launch
                 }
+
                 if (spotifyKind == "track") {
-                    withContext(Dispatchers.Main) {
-                        homeState = idle.copy(isLoading = true, loadingStatusText = "Matching this track on YouTube…")
-                    }
+                    status("Hunting down your track…")
                     val m = downloader.callAttr("resolve_spotify_track", idle.linkInput).asMap()
-                    fun str(key: String) = m[PyObject.fromJava(key)]?.toString().orEmpty()
-                    val match = SpotifyMatch(
-                        spotifyUrl = idle.linkInput,
-                        spotifyTitle = str("spotifyTitle"),
-                        spotifyArtist = str("spotifyArtist"),
-                        videoUrl = str("url"),
-                        videoTitle = str("title"),
-                        channel = str("channel"),
-                        thumbnailUrl = str("thumbnailUrl"),
-                        durationText = str("durationText")
-                    )
+                    status("Matching it with YouTube…")
+                    val match = m.toSpotifyMatch(idle.linkInput)
                     withContext(Dispatchers.Main) { homeState = HomeUiState.SpotifyTrack(match) }
                     return@launch
                 }
@@ -109,6 +122,7 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                 val isPlaylist = downloader.callAttr("is_playlist", idle.linkInput).toBoolean()
 
                 if (isPlaylist) {
+                    status("Found a playlist — rounding up the videos…")
                     val res = downloader.callAttr("fetch_playlist_info", idle.linkInput).asMap()
                     val entries = res[PyObject.fromJava("entries")]!!.asList().map { e ->
                         val m = e.asMap()
@@ -120,6 +134,7 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                             durationText = m[PyObject.fromJava("durationText")].toString()
                         )
                     }
+                    if (entries.isEmpty()) throw IllegalStateException("empty playlist")
                     val playlist = PlaylistResult(
                         sourceUrl = idle.linkInput,
                         title = res[PyObject.fromJava("title")].toString(),
@@ -134,6 +149,7 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 // Single video — unchanged from before.
+                status("Fetching the details…")
                 val res = downloader.callAttr("fetch_video_info", idle.linkInput).asMap()
                 val formatsRaw = res[PyObject.fromJava("formats")]!!.asList()
                 val formats = formatsRaw.map { f ->
@@ -153,16 +169,51 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                     formats = formats
                 )
                 withContext(Dispatchers.Main) { homeState = HomeUiState.Result(video) }
-            } catch (e: PyException) {
-                CrashLogger.log("PYTHON ERROR (fetchVideo): ${e.message}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                CrashLogger.log("FETCH FAILED: ${e.message}")
+                val message = friendlyError(e)
                 withContext(Dispatchers.Main) {
-                    homeState = HomeUiState.Idle(
-                        linkInput = idle.linkInput,
-                        errorText = "Couldn't read that link. Check it and try again."
-                    )
+                    homeState = HomeUiState.Idle(linkInput = idle.linkInput, errorText = message)
                 }
             }
         }
+    }
+
+    /** Turns any failure into one clear, friendly line for the home screen. */
+    private fun friendlyError(e: Throwable): String {
+        val text = (generateSequence(e) { it.cause }
+            .mapNotNull { it.message }
+            .joinToString(" ")).lowercase()
+        return when {
+            listOf("timed out", "timeout", "unreachable", "network", "connection",
+                "resolve host", "urlerror", "temporary failure", "socket")
+                .any { text.contains(it) } ->
+                "Lost signal for a second 📡 — check your connection and retry."
+
+            listOf("unsupported url", "is not a valid url", "no video", "not available",
+                "private", "unavailable", "removed", "404", "does not exist",
+                "could not read", "no youtube match", "empty playlist", "unable to extract")
+                .any { text.contains(it) } ->
+                "Hmm, couldn't find anything there 🕵️ — double check the link and try again."
+
+            else -> "That one didn't work — give it another shot!"
+        }
+    }
+
+    private fun Map<PyObject, PyObject>.toSpotifyMatch(sourceUrl: String): SpotifyMatch {
+        fun str(key: String) = this[PyObject.fromJava(key)]?.toString().orEmpty()
+        return SpotifyMatch(
+            spotifyUrl = sourceUrl,
+            spotifyTitle = str("spotifyTitle"),
+            spotifyArtist = str("spotifyArtist"),
+            videoUrl = str("url"),
+            videoTitle = str("title"),
+            channel = str("channel"),
+            thumbnailUrl = str("thumbnailUrl"),
+            durationText = str("durationText")
+        )
     }
 
     /** Single-video download — now just a batch of one on the background queue. */
