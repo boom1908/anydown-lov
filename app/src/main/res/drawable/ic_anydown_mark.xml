@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Anydown logo mark: a solid yellow slanted "A" stroke next to an outlined
+  "D" half-disc. Transparent background so it sits directly on the app's
+  dark canvas (no white container box).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Slanted "A" bar -->
+    <path
+        android:fillColor="#FFD93D"
+        android:pathData="M46,24 L68,24 L44,96 L22,96 Z" />
+
+    <!-- Outlined "D" half-disc -->
+    <path
+        android:strokeColor="#FFD93D"
+        android:strokeWidth="7"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M70,24 L82,24 C98,44 100,74 88,96 L58,96 Z" />
+</vector>
