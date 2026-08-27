@@ -176,6 +176,24 @@ fun HomeIdleContent(
                 )
             }
 
+            state.errorText?.let { error ->
+                Spacer(Modifier.height(16.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .brutalistBox(cornerRadius = 10.dp, shadowOffset = 4.dp, backgroundColor = AnydownColors.panel)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Text(
+                        error,
+                        color = AnydownColors.textPrimary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
             // extra bottom room so the floating widget never overlaps content
             Spacer(Modifier.height(140.dp))
         }
