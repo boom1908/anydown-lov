@@ -202,7 +202,7 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun Map<PyObject?, PyObject?>.toSpotifyMatch(sourceUrl: String): SpotifyMatch {
+    private fun Map<PyObject, PyObject>.toSpotifyMatch(sourceUrl: String): SpotifyMatch {
         fun str(key: String) = this[PyObject.fromJava(key)]?.toString().orEmpty()
         return SpotifyMatch(
             spotifyUrl = sourceUrl,
