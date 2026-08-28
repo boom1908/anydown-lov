@@ -14,7 +14,7 @@
         android:label="Anydown"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:theme="@style/Theme.Anydown">
         <activity
             android:name=".MainActivity"
             android:exported="true">

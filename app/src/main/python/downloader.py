@@ -304,12 +304,18 @@ def _spotify_collection_track_urls(html):
             seen.add(track_id)
             ordered.append("https://open.spotify.com/track/" + track_id)
 
-    # 1) <meta name="music:song" content="https://open.spotify.com/track/ID">
-    for m in _re.finditer(
-        r'<meta[^>]+(?:name|property)="music:song"[^>]+content="[^"]*?/track/([A-Za-z0-9]+)"',
-        html, _re.IGNORECASE
-    ):
-        _add(m.group(1))
+    # 1) <meta ... music:song ... content=".../track/ID"> — attribute order is
+    #    NOT guaranteed, so match the whole tag first, then read its parts.
+    for tag in _re.finditer(r'<meta\b[^>]*>', html, _re.IGNORECASE):
+        raw = tag.group(0)
+        if not _re.search(r'(?:name|property)\s*=\s*["\']music:song["\']', raw, _re.IGNORECASE):
+            continue
+        c = _re.search(r'content\s*=\s*["\']([^"\']+)["\']', raw, _re.IGNORECASE)
+        if not c:
+            continue
+        t = _re.search(r'/track/([A-Za-z0-9]+)', c.group(1))
+        if t:
+            _add(t.group(1))
     if ordered:
         return ordered
 
@@ -331,15 +337,18 @@ def _spotify_declared_track_count(html):
             return int(m.group(1))
         except Exception:
             pass
-    m = _re.search(
-        r'<meta[^>]+(?:name|property)="(?:og:)?description"[^>]+content="([^"]+)"',
-        html, _re.IGNORECASE
-    )
-    if m:
-        c = _re.search(r'(\d+)\s+songs?\b', m.group(1), _re.IGNORECASE)
-        if c:
+    # og:description / description, again order-independent.
+    for tag in _re.finditer(r'<meta\b[^>]*>', html, _re.IGNORECASE):
+        raw = tag.group(0)
+        if not _re.search(r'(?:name|property)\s*=\s*["\'](?:og:)?description["\']', raw, _re.IGNORECASE):
+            continue
+        c = _re.search(r'content\s*=\s*["\']([^"\']+)["\']', raw, _re.IGNORECASE)
+        if not c:
+            continue
+        n = _re.search(r'(\d+)\s+songs?\b', c.group(1), _re.IGNORECASE)
+        if n:
             try:
-                return int(c.group(1))
+                return int(n.group(1))
             except Exception:
                 pass
     return None
@@ -379,3 +388,21 @@ def resolve_spotify_collection_single(url):
         return resolve_spotify_track(track_url)
     except Exception:
         return None
+
+
+def spotify_collection_debug(url):
+    """
+    Diagnostics for a collection link that did NOT resolve to a single track.
+    Called by the app only on failure and written to the internal crash log —
+    never shown to the user.
+    """
+    try:
+        html = _http_get(url, timeout=12)
+    except Exception as e:
+        return "spotify_collection_debug: fetch failed: %r" % (e,)
+    tracks = _spotify_collection_track_urls(html) or []
+    declared = _spotify_declared_track_count(html)
+    return (
+        "spotify_collection_debug url=%s tracks_found=%d declared=%s html_len=%d\n"
+        "html_head=%s" % (url, len(tracks), declared, len(html), html[:500])
+    )

@@ -88,8 +88,10 @@ fun FormatCard(
 
         Box(Modifier.size(42.dp).background(accentColor, RoundedCornerShape(6.dp)).border(2.dp, AnydownColors.Ink, RoundedCornerShape(6.dp)))
         Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(name, color = AnydownColors.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp, fontFamily = SpaceGroteskFamily)
+        Column(Modifier.weight(1f, fill = true).widthIn(min = 0.dp)) {
+            Text(name, color = AnydownColors.Ink, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                lineHeight = 19.sp, softWrap = true, fontFamily = SpaceGroteskFamily,
+                modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 badges.forEach {
                     Text(it, fontSize = 11.5.sp, color = AnydownColors.Muted, fontFamily = JetBrainsMonoFamily,

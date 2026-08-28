@@ -16,7 +16,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.boom.anydown.ui.AnydownApp
+import com.boom.anydown.ui.SplashScreen
 import com.boom.anydown.ui.dialogs.NotificationPrePromptDialog
 import com.boom.anydown.ui.dialogs.UpdateAvailableDialog
 import com.boom.anydown.ui.theme.AnydownTheme
@@ -40,11 +46,27 @@ class MainActivity : ComponentActivity() {
         if (!Python.isStarted()) Python.start(AndroidPlatform(this))
 
         viewModel = ViewModelProvider(this)[AnydownViewModel::class.java]
+        // Warm the Python module off the main thread; the splash stays up
+        // until it's ready so the first fetch isn't the one that pays for it.
+        val engineReady = mutableStateOf(false)
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { Python.getInstance().getModule("downloader") }
+            }
+            delay(400) // let the brand frame breathe instead of flashing
+            engineReady.value = true
+        }
 
         handleSharedLink(intent)
 
         setContent {
             AnydownTheme {
+                val ready by engineReady
+                if (!ready) {
+                    SplashScreen()
+                    return@AnydownTheme
+                }
+
                 AnydownApp()
 
                 // First launch: explain why we're about to ask, then ask.

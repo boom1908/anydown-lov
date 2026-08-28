@@ -390,16 +390,44 @@ private fun FormatCard(
             )
         }
         Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(format.label, color = AnydownColors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(format.subtitle, color = AnydownColors.textMuted, fontSize = 11.sp)
+        // The label owns the whole remaining row width: subtitle and size text
+        // stack underneath it instead of competing for the same line, which is
+        // what used to squeeze the label down to one character per line on
+        // narrow/dense screens.
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = true)
+                .widthIn(min = 0.dp)
+        ) {
+            Text(
+                text = format.label,
+                color = AnydownColors.textPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = format.subtitle,
+                color = AnydownColors.textMuted,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (format.sizeText.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = format.sizeText,
+                    color = AnydownColors.green,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
-        Text(
-            text = format.sizeText,
-            color = AnydownColors.green,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
     }
 }
 

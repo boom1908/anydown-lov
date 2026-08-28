@@ -101,6 +101,14 @@ class AnydownViewModel(application: Application) : AndroidViewModel(application)
                             return@launch
                         }
                     }
+                    // Safety net: record what the page actually looked like so a
+                    // missed single-song album can be diagnosed later. Internal
+                    // log only — never surfaced to the user.
+                    runCatching {
+                        CrashLogger.log(
+                            downloader.callAttr("spotify_collection_debug", idle.linkInput).toString()
+                        )
+                    }
                     withContext(Dispatchers.Main) {
                         homeState = HomeUiState.Idle(
                             linkInput = idle.linkInput,

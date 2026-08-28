@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import com.boom.anydown.R
-import com.boom.anydown.ui.theme.AnydownColors
+import com.boom.anydown.ui.theme.AnydownColors as Palette
 
 /**
  * Branded launch screen: logo mark, wordmark and a brutalist pulsing loader
@@ -39,7 +38,7 @@ fun SplashScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(AnydownColors.background),
+            .background(Palette.background),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -51,7 +50,7 @@ fun SplashScreen() {
             Spacer(Modifier.height(20.dp))
             Text(
                 "ANYDOWN",
-                color = AnydownColors.textPrimary,
+                color = Palette.textPrimary,
                 fontWeight = FontWeight.Black,
                 fontSize = 34.sp,
                 letterSpacing = 3.sp
@@ -81,10 +80,8 @@ private fun PulsingBlocks() {
                     .width(22.dp)
                     .height(7.dp)
                     .alpha(alpha)
-                    .background(AnydownColors.yellow)
+                    .background(Palette.yellow)
             )
         }
     }
-    Spacer(Modifier.height(0.dp))
-    Box(Modifier.fillMaxWidth())
 }
