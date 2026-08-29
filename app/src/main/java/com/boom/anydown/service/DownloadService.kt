@@ -49,6 +49,7 @@ class DownloadService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLogger.init(this)
         createChannel()
         if (!Python.isStarted()) Python.start(AndroidPlatform(this))
         DownloadQueue.ensureLoaded(this)
@@ -89,7 +90,12 @@ class DownloadService : Service() {
 
         DownloadQueue.publishActive(request.title, 0, DownloadStatus.DOWNLOADING)
         DownloadQueue.updateItem(this, request.id, persist = false) {
-            it.copy(status = DownloadStatus.DOWNLOADING, progress = 0)
+            it.copy(
+                status = DownloadStatus.DOWNLOADING,
+                progress = 0,
+                formatId = request.formatId,
+                failureReason = null
+            )
         }
         updateProgressNotification(request.title, 0, DownloadStatus.DOWNLOADING, force = true)
 
@@ -97,15 +103,20 @@ class DownloadService : Service() {
             val py = Python.getInstance()
             val ffmpegDir = getFfmpegBinDir(this)
             val outputDir = getExternalFilesDir(null)?.absolutePath ?: filesDir.absolutePath
+            var shownProgress = 0
 
             val callback = object : ProgressCallback {
                 override fun onProgress(percent: Int, status: String) {
                     val mapped = if (status == "processing") DownloadStatus.PROCESSING else DownloadStatus.DOWNLOADING
+                    // yt-dlp can report a slightly stale value after a newer
+                    // callback. The service owns the only displayed progress
+                    // value and never lets it move backwards.
+                    shownProgress = maxOf(shownProgress, percent.coerceIn(0, 100))
                     DownloadQueue.updateItem(this@DownloadService, request.id, persist = false) {
-                        it.copy(progress = percent, status = mapped)
+                        it.copy(progress = shownProgress, status = mapped)
                     }
-                    DownloadQueue.publishActive(request.title, percent, mapped)
-                    updateProgressNotification(request.title, percent, mapped, force = false)
+                    DownloadQueue.publishActive(request.title, shownProgress, mapped)
+                    updateProgressNotification(request.title, shownProgress, mapped, force = false)
                 }
 
                 override fun isCancelled(): Boolean = DownloadQueue.isCancelled(request.id)
@@ -126,7 +137,9 @@ class DownloadService : Service() {
                     filePath = uri,
                     sizeMb = sizeMb,
                     status = DownloadStatus.COMPLETED,
-                    progress = 100
+                    progress = 100,
+                    formatId = request.formatId,
+                    failureReason = null
                 )
             }
         } catch (e: Throwable) {
@@ -135,8 +148,35 @@ class DownloadService : Service() {
             val wasCancelled = DownloadQueue.isCancelled(request.id) ||
                 (e is PyException && e.message?.contains("cancel", ignoreCase = true) == true)
             DownloadQueue.updateItem(this, request.id, persist = true) {
-                it.copy(status = if (wasCancelled) DownloadStatus.CANCELLED else DownloadStatus.FAILED)
+                it.copy(
+                    status = if (wasCancelled) DownloadStatus.CANCELLED else DownloadStatus.FAILED,
+                    failureReason = if (wasCancelled) null else friendlyFailureReason(request, e)
+                )
             }
+        }
+    }
+
+    private fun friendlyFailureReason(request: DownloadRequest, error: Throwable): String {
+        val text = generateSequence(error) { it.cause }
+            .mapNotNull { it.message }
+            .joinToString(" ")
+            .lowercase()
+        val formatUnavailable = listOf(
+            "requested format is not available",
+            "format is not available",
+            "requested format not available",
+            "no video formats found",
+            "unable to download format"
+        ).any { text.contains(it) }
+
+        if (!formatUnavailable) {
+            return "Something went wrong with this one — give it another try"
+        }
+
+        return when (request.formatId) {
+            "audio" -> "Audio Only isn't available for this video — try Best Quality or Fast Download instead"
+            "fast" -> "Fast Download isn't available for this video — try Best Quality or Audio Only instead"
+            else -> "Best Quality isn't available for this video — try Audio Only or Fast Download instead"
         }
     }
 

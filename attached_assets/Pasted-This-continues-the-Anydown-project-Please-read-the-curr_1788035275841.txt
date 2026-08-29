@@ -1,0 +1,91 @@
+This continues the Anydown project. Please read the current launcher icon resources, the SplashScreen composable, CrashLogger, the download queue/progress code, and the Downloads screen before making these changes.
+
+
+
+1. Fix the wrong logo appearing at launch
+
+
+
+A flash of an incorrect logo appears before the real branded splash screen — this is a genuinely different icon, not a scaled version of the real one. The root cause: the launcher icon and/or the system splash icon (Android 12+ theme resource) are separate resource files from the one used correctly inside the in-app SplashScreen composable, and they were never updated to match — they're pointing at an old or incorrect asset instead of the real logo.
+
+
+
+- Find the exact drawable/vector asset that the in-app SplashScreen composable uses for the logo mark (the one that renders correctly).
+
+- Make BOTH the app's launcher icon (mipmap-anydpi-v26/ic_launcher.xml and its foreground/background layers) AND the Android 12+ system splash icon (windowSplashScreenAnimatedIcon in the v31 theme) reference that exact same real asset — not a re-created or approximated version. Reuse, don't reinvent.
+
+- The launcher icon's background layer should match the app's dark background color (no white box) to be visually consistent with everything else.
+
+- After this, there should be no point in the launch sequence where a differently-shaped or differently-styled logo flashes.
+
+
+
+2. Add a hidden debug log screen (secret gesture, no visible button)
+
+
+
+There's a logger (CrashLogger) that writes internally, including the Spotify single-song-album diagnostic added last round, but nothing in the app lets the user actually see what it wrote — there's no viewer, and it shouldn't be a normal visible button.
+
+
+
+- Make tapping the "ANYDOWN" title text on the home screen 7 times in a row (within a couple seconds of each tap, like Android's own "tap build number to enable developer options" easter egg) open a hidden "Debug Logs" screen.
+
+- That screen displays whatever CrashLogger has stored, most recent first, in plain scrollable monospace text, with a "Copy" button so the log text can be copied to the clipboard without needing a computer.
+
+- No visible button or menu entry anywhere else — the 7-tap gesture on the title is the only way in.
+
+- A tiny one-time toast like "Debug mode unlocked" on the 7th tap is a nice touch so the user knows it worked, but keep it subtle.
+
+
+
+3. Fix the download progress bar jitter (confirmed with real data, not a one-time reset)
+
+
+
+Pulled a frame every 0.2 seconds from an actual test recording and read the exact percentage off each one. Here's a real, unedited sequence during a single download that never left the "downloading" state:
+
+
+
+31 → 29 → 33 → 33 → 31 → 35 → 35 → 33 → 37 → 38 → 35 → 39 → 39 → 38 → 41 → 42 → 39 → 43 → 44 → 42 → 45...
+
+
+
+This is a repeating up-down sawtooth throughout the ENTIRE download, not just one reset when switching from video to audio. This means two different progress updates are overwriting each other continuously — most likely a smoothed/animated progress value racing against a raw, slightly-stale percentage from the yt-dlp progress callback.
+
+
+
+- There must be exactly ONE source of truth for the displayed percentage at any given moment — not two values (animated + raw) both writing to the same state.
+
+- Whatever value is shown to the user must be mathematically clamped so it can never decrease — e.g. `shownProgress = max(shownProgress, newValue)` at the point where it's written to state, for the entire lifecycle of one download (across video download, audio download, and merging combined into one continuous number).
+
+- After the fix, a full download's progress log (sampled densely, not just occasionally) should be strictly non-decreasing from 0 to 100.
+
+
+
+4. Show which format was chosen in the Downloads list
+
+
+
+Every entry in the Downloads screen currently shows only the title, with no way to tell whether it was downloaded as Best Quality, Audio Only, or Fast Download.
+
+
+
+- Add a small format badge/tag to each Downloads list item — icon + short label matching the icons already used on the format-selection cards (clapperboard/music note/lightning bolt).
+
+- Keep it compact, next to or under the title.
+
+
+
+5. Show a real reason when a download fails instead of just "Failed"
+
+
+
+Some videos don't have every quality available (e.g. no 720p stream for Fast Download), and right now failures just show a bare red "Failed" with no explanation.
+
+
+
+- When a specific format isn't available for a given video/track, catch that case and store a short human-readable reason on the item (e.g. "Fast Download isn't available for this video — try Best Quality or Audio Only instead").
+
+- Display that reason under "Failed" in the Downloads list instead of the bare word alone.
+
+- For unknown failures, fall back to a friendly generic message ("Something went wrong with this one — give it another try") instead of a technical error string.

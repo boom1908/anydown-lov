@@ -1,0 +1,1 @@
+- [Android build environment](android-build-environment.md) — imported Android projects may have a JDK but no SDK, and the workspace installer may not expose Android SDK packages.

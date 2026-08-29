@@ -41,7 +41,10 @@ data class DownloadedItem(
     val sizeMb: Int,
     val filePath: String,
     val status: DownloadStatus = DownloadStatus.DOWNLOADING,
-    val progress: Int = 0
+    val progress: Int = 0,
+    /** Stored with a default so history created before format badges still loads. */
+    val formatId: String? = "full",
+    val failureReason: String? = null
 )
 
 /**

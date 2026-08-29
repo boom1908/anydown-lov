@@ -7,8 +7,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -138,7 +141,9 @@ private fun SwipeableDownloadRow(
                     .clickable(enabled = item.status == DownloadStatus.COMPLETED) { onOpen(item) }
             ) {
                 Text(item.title, color = AnydownColors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
-                
+                Spacer(Modifier.height(5.dp))
+                FormatBadge(item.formatId)
+
                 when (item.status) {
                     DownloadStatus.QUEUED -> {
                         Spacer(Modifier.height(4.dp))
@@ -171,6 +176,12 @@ private fun SwipeableDownloadRow(
                     DownloadStatus.FAILED -> {
                         Spacer(Modifier.height(4.dp))
                         Text("Failed", color = AnydownColors.danger, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            item.failureReason ?: "Something went wrong with this one — give it another try",
+                            color = AnydownColors.textMuted,
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp
+                        )
                     }
                 }
             }
@@ -185,5 +196,25 @@ private fun SwipeableDownloadRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FormatBadge(formatId: String?) {
+    val (label, accent, icon) = when (formatId) {
+        "audio" -> Triple("AUDIO ONLY", AnydownColors.green, Icons.Filled.MusicNote)
+        "fast" -> Triple("FAST DOWNLOAD", AnydownColors.coral, Icons.Filled.Bolt)
+        else -> Triple("BEST QUALITY", AnydownColors.blue, Icons.Filled.Movie)
+    }
+
+    Row(
+        modifier = Modifier
+            .background(accent, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = AnydownColors.onAccentDark, modifier = Modifier.size(12.dp))
+        Text(label, color = AnydownColors.onAccentDark, fontSize = 9.sp, fontWeight = FontWeight.Black)
     }
 }

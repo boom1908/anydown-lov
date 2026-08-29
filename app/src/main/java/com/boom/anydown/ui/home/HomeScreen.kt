@@ -4,11 +4,14 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.SystemClock
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.State
 import androidx.compose.runtime.DisposableEffect
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,10 +53,14 @@ fun HomeIdleContent(
     onFetch: () -> Unit,
     onClipboardDetected: (String) -> Unit,
     onAcceptClipboard: () -> Unit,
-    onDismissClipboard: () -> Unit
+    onDismissClipboard: () -> Unit,
+    onDebugLogsUnlocked: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
     var showPortfolioToast by remember { mutableStateOf(false) }
+    var titleTapCount by remember { mutableIntStateOf(0) }
+    var lastTitleTapAt by remember { mutableLongStateOf(0L) }
 
     val (isOnlineState, refreshConnectivity) = rememberConnectivityState()
     val isOnline by isOnlineState
@@ -101,7 +108,26 @@ fun HomeIdleContent(
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("ANYDOWN", color = AnydownColors.textPrimary, fontWeight = FontWeight.Black, fontSize = 36.sp)
+            Text(
+                "ANYDOWN",
+                color = AnydownColors.textPrimary,
+                fontWeight = FontWeight.Black,
+                fontSize = 36.sp,
+                modifier = Modifier.clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastTitleTapAt > DEBUG_TAP_WINDOW_MS) titleTapCount = 0
+                    lastTitleTapAt = now
+                    titleTapCount++
+                    if (titleTapCount >= DEBUG_TAP_COUNT) {
+                        titleTapCount = 0
+                        Toast.makeText(context, "Debug mode unlocked", Toast.LENGTH_SHORT).show()
+                        onDebugLogsUnlocked()
+                    }
+                }
+            )
             Spacer(Modifier.height(6.dp))
             Text(
                 "Download YouTube videos, playlists, Shorts, Instagram Reels, and Spotify tracks as full video or audio only.",
@@ -263,6 +289,9 @@ fun HomeIdleContent(
         }
     }
 }
+
+private const val DEBUG_TAP_COUNT = 7
+private const val DEBUG_TAP_WINDOW_MS = 2_500L
 
 @Composable
 fun HomeResultContent(

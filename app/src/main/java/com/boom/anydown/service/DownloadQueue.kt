@@ -92,7 +92,8 @@ object DownloadQueue {
                 sizeMb = 0,
                 filePath = "",
                 status = DownloadStatus.QUEUED,
-                progress = 0
+                progress = 0,
+                formatId = it.formatId
             )
         }
         _items.value = newItems.reversed() + _items.value

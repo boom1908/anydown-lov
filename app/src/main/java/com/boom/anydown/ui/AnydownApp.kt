@@ -33,6 +33,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.boom.anydown.model.HomeUiState
+import com.boom.anydown.LogViewerScreen
 import com.boom.anydown.ui.aura.AuraOverlay
 import com.boom.anydown.ui.aura.AuraOverlayController
 import com.boom.anydown.ui.brutalist.brutalistBox
@@ -50,6 +51,7 @@ import com.boom.anydown.viewmodel.AnydownViewModel
 private const val ROUTE_HOME = "home"
 private const val ROUTE_DOWNLOADS = "downloads"
 private const val ROUTE_PLAYLIST_SECTION = "playlist/{formatId}"
+private const val ROUTE_DEBUG_LOGS = "debug-logs"
 
 @Composable
 fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
@@ -70,6 +72,7 @@ fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
             bottomBar = {
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = backStackEntry?.destination?.route
+                if (currentRoute == ROUTE_DEBUG_LOGS) return@Scaffold
 
                 Row(
                     modifier = Modifier
@@ -124,7 +127,12 @@ fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
                                 onFetch = viewModel::fetchVideo,
                                 onClipboardDetected = viewModel::onClipboardLinkDetected,
                                 onAcceptClipboard = viewModel::acceptClipboardSuggestion,
-                                onDismissClipboard = viewModel::dismissClipboardSuggestion
+                                onDismissClipboard = viewModel::dismissClipboardSuggestion,
+                                onDebugLogsUnlocked = {
+                                    navController.navigate(ROUTE_DEBUG_LOGS) {
+                                        launchSingleTop = true
+                                    }
+                                }
                             )
                             state.spotifyCollectionKind?.let { kind ->
                                 SpotifyCollectionDialog(
@@ -236,6 +244,9 @@ fun AnydownApp(viewModel: AnydownViewModel = viewModel()) {
                             }
                         }
                     )
+                }
+                composable(ROUTE_DEBUG_LOGS) {
+                    LogViewerScreen(onBack = { navController.popBackStack() })
                 }
             }
         }
