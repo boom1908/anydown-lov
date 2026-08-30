@@ -141,8 +141,20 @@ from html import unescape as _html_unescape
 from urllib.parse import urlparse as _urlparse, quote as _quote
 from urllib.request import Request as _Request, urlopen as _urlopen
 
-_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/122.0 Safari/537.36")
+# The app fetches Spotify from an Android device, so use a complete mobile
+# Chrome profile rather than urllib's default or an incomplete desktop UA.
+# Spotify serves the server-rendered metadata page to this profile instead of
+# the tiny Web Player shell that some desktop/browser profiles receive.
+_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36")
+_HTTP_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 def spotify_link_type(url):
@@ -161,7 +173,7 @@ def spotify_link_type(url):
 
 
 def _http_get(url, timeout=15):
-    req = _Request(url, headers={"User-Agent": _UA, "Accept-Language": "en-US,en;q=0.9"})
+    req = _Request(url, headers=_HTTP_HEADERS)
     with _urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="ignore")
 
