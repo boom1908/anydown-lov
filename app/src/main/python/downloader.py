@@ -137,6 +137,7 @@ def fetch_playlist_info(url):
 
 import json as _json
 import re as _re
+from html import unescape as _html_unescape
 from urllib.parse import urlparse as _urlparse, quote as _quote
 from urllib.request import Request as _Request, urlopen as _urlopen
 
@@ -298,6 +299,12 @@ def _spotify_collection_track_urls(html):
     """Best-effort list of unique track URLs embedded in a public album/playlist page."""
     ordered = []
     seen = set()
+    # Spotify serializes the same page in a few forms depending on locale and
+    # which server-side renderer answered the request. Normalize escaped HTML
+    # and JSON slashes before looking for track IDs.
+    normalized = _html_unescape(html)
+    normalized = normalized.replace("\\/", "/")
+    normalized = normalized.replace("\\u002F", "/").replace("\\u002f", "/")
 
     def _add(track_id):
         if track_id and track_id not in seen:
@@ -306,39 +313,56 @@ def _spotify_collection_track_urls(html):
 
     # 1) <meta ... music:song ... content=".../track/ID"> — attribute order is
     #    NOT guaranteed, so match the whole tag first, then read its parts.
-    for tag in _re.finditer(r'<meta\b[^>]*>', html, _re.IGNORECASE):
+    for tag in _re.finditer(r'<meta\b[^>]*>', normalized, _re.IGNORECASE):
         raw = tag.group(0)
         if not _re.search(r'(?:name|property)\s*=\s*["\']music:song["\']', raw, _re.IGNORECASE):
             continue
         c = _re.search(r'content\s*=\s*["\']([^"\']+)["\']', raw, _re.IGNORECASE)
         if not c:
             continue
-        t = _re.search(r'/track/([A-Za-z0-9]+)', c.group(1))
+        t = _re.search(r'(?:/track/|spotify:track:)([A-Za-z0-9]{16,})', c.group(1), _re.IGNORECASE)
         if t:
             _add(t.group(1))
     if ordered:
         return ordered
 
-    # 2) Embedded JSON payload: spotify:track:ID / "/track/ID"
-    for m in _re.finditer(r'spotify:track:([A-Za-z0-9]{20,})', html):
+    # 2) Embedded JSON payload: spotify:track:ID / "/track/ID".
+    # The locale segment is optional: both /track/ID and /intl-en/track/ID
+    # occur in public Spotify pages.
+    for m in _re.finditer(r'spotify:track:([A-Za-z0-9]{16,})', normalized, _re.IGNORECASE):
         _add(m.group(1))
     if ordered:
         return ordered
-    for m in _re.finditer(r'open\.spotify\.com/track/([A-Za-z0-9]{20,})', html):
+    for m in _re.finditer(
+        r'(?:open\.spotify\.com|spotify\.com)/(?:intl-[^/"\s]+/)?track/([A-Za-z0-9]{16,})',
+        normalized,
+        _re.IGNORECASE,
+    ):
         _add(m.group(1))
     return ordered or None
 
 
 def _spotify_declared_track_count(html):
     """Reads a declared track count from the page, or None when unavailable."""
-    m = _re.search(r'"totalTracks"\s*:\s*(\d+)', html)
-    if m:
-        try:
-            return int(m.group(1))
-        except Exception:
-            pass
+    normalized = _html_unescape(html).replace("\\/", "/")
+    normalized = normalized.replace("\\u002F", "/").replace("\\u002f", "/")
+    # These keys have all appeared in Spotify's server-rendered payloads.
+    for pattern in (
+        r'"totalTracks"\s*:\s*(\d+)',
+        r'"total_tracks"\s*:\s*(\d+)',
+        r'"trackCount"\s*:\s*(\d+)',
+        r'"track_count"\s*:\s*(\d+)',
+        r'"num_tracks"\s*:\s*(\d+)',
+        r'"tracks"\s*:\s*\{\s*"total"\s*:\s*(\d+)',
+    ):
+        m = _re.search(pattern, normalized, _re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except Exception:
+                pass
     # og:description / description, again order-independent.
-    for tag in _re.finditer(r'<meta\b[^>]*>', html, _re.IGNORECASE):
+    for tag in _re.finditer(r'<meta\b[^>]*>', normalized, _re.IGNORECASE):
         raw = tag.group(0)
         if not _re.search(r'(?:name|property)\s*=\s*["\'](?:og:)?description["\']', raw, _re.IGNORECASE):
             continue
@@ -364,7 +388,13 @@ def spotify_collection_single_track_url(url):
         tracks = _spotify_collection_track_urls(html)
         declared = _spotify_declared_track_count(html)
 
-        # Both signals must agree on "1" whenever both are available.
+        # A declared one-track collection is the stronger signal. The page can
+        # contain recommendation/related-track URLs outside the collection,
+        # so requiring len(tracks) == 1 would incorrectly reject real
+        # single-song albums. The first embedded track is the collection's
+        # primary track in Spotify's server-rendered document order.
+        if declared == 1 and tracks:
+            return tracks[0]
         if declared is not None and declared != 1:
             return ""
         if tracks is None:
