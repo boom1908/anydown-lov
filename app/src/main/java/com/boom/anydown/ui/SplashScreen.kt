@@ -43,7 +43,7 @@ fun SplashScreen() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
-                painter = painterResource(id = R.drawable.ic_anydown_mark),
+                painter = painterResource(id = R.drawable.anydown_logo_master),
                 contentDescription = "Anydown",
                 modifier = Modifier.size(104.dp)
             )
