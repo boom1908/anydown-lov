@@ -192,6 +192,19 @@ def _spotify_intent_fallback_url(location):
             if values and values[0]:
                 fallback = _unquote(values[0]).strip()
                 break
+
+            # Android intent URIs commonly put their extras after the
+            # "#Intent" fragment and separate them with semicolons, e.g.
+            # "S.browser_fallback_url=<encoded-url>;S.market_referrer=...".
+            # Match the raw value up to the next semicolon so encoded "&" and
+            # "=" characters inside the nested URL stay part of the value.
+            match = _re.search(
+                r"(?:^|;)" + _re.escape(key) + r"=([^;]*)",
+                parsed.fragment,
+            )
+            if match and match.group(1):
+                fallback = _unquote(match.group(1)).strip()
+                break
         if not fallback:
             return ""
 
