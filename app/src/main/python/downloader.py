@@ -138,7 +138,13 @@ def fetch_playlist_info(url):
 import json as _json
 import re as _re
 from html import unescape as _html_unescape
-from urllib.parse import urlparse as _urlparse, quote as _quote
+from urllib.parse import (
+    urlparse as _urlparse,
+    parse_qs as _parse_qs,
+    quote as _quote,
+    unquote as _unquote,
+)
+from urllib.error import HTTPError as _HTTPError
 from urllib.request import Request as _Request, urlopen as _urlopen
 
 # The app fetches Spotify from an Android device, so use a complete mobile
@@ -172,10 +178,54 @@ def spotify_link_type(url):
         return ""
 
 
-def _http_get(url, timeout=15):
+def _spotify_intent_fallback_url(location):
+    """Extract and validate Spotify's HTTPS fallback from an intent redirect."""
+    try:
+        parsed = _urlparse(location or "")
+        if (parsed.scheme or "").lower() != "intent":
+            return ""
+
+        params = _parse_qs(parsed.query, keep_blank_values=True)
+        fallback = ""
+        for key in ("S.browser_fallback_url", "$fallback_url"):
+            values = params.get(key) or []
+            if values and values[0]:
+                fallback = _unquote(values[0]).strip()
+                break
+        if not fallback:
+            return ""
+
+        fallback_parsed = _urlparse(fallback)
+        if (
+            (fallback_parsed.scheme or "").lower() != "https"
+            or (fallback_parsed.hostname or "").lower() != "open.spotify.com"
+            or not spotify_link_type(fallback)
+        ):
+            return ""
+        return fallback
+    except Exception:
+        return ""
+
+
+def _http_get_once(url, timeout=15):
     req = _Request(url, headers=_HTTP_HEADERS)
     with _urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="ignore")
+
+
+def _http_get(url, timeout=15):
+    try:
+        return _http_get_once(url, timeout=timeout)
+    except _HTTPError as error:
+        # Branch share links can redirect to an Android intent URI. urllib
+        # cannot follow that non-HTTP scheme, but the intent carries the
+        # public Spotify URL that a normal HTTP client should fetch instead.
+        headers = getattr(error, "headers", None)
+        location = headers.get("Location", "") if headers else ""
+        fallback = _spotify_intent_fallback_url(location)
+        if not fallback:
+            raise
+        return _http_get_once(fallback, timeout=timeout)
 
 
 def _spotify_oembed_title(track_url):
