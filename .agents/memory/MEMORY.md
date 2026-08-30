@@ -1,1 +1,2 @@
 - [Android build environment](android-build-environment.md) — imported Android projects may have a JDK but no SDK, and the workspace installer may not expose Android SDK packages.
+- [GitHub connector publishing](github-connector-publishing.md) — when local Git HTTPS auth fails, publish approved changes through the authorized connector with a verified non-force ref update.
