@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ applies its own splash-icon mask. Keep the complete source
+    image inside a padded drawable so the logo cannot be clipped by that mask.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="24dp"
+    android:drawable="@drawable/anydown_logo_master" />

@@ -4,7 +4,7 @@
         <item name="android:windowBackground">@color/anydown_background</item>
         <!-- Android 12+ splash: the uploaded logo asset on the app's dark canvas. -->
         <item name="android:windowSplashScreenBackground">@color/anydown_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/anydown_logo_master</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/anydown_logo_splash</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
 </resources>
